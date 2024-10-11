@@ -66,6 +66,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
   SerialMon.write(payload, len);
   SerialMon.println();
 
+  String messageTemp;
+  for(int i=0;i<len;i++){
+    Serial.print((char) payload[i]);
+    messageTemp += (char) payload[i];
+  }
+  Serial.println();
+  Serial.println("-----------------------");
+  Serial.println(messageTemp);
+
   // Only proceed if incoming message's topic matches
   if (String(topic) == topicLed) {
     ledStatus = !ledStatus;
@@ -106,11 +115,11 @@ void setup() {
   // !!!!!!!!!!!
 
   SerialMon.println("Wait...");
-
+  delay(120000);
   // Set GSM module baud rate
   SerialAT.begin(9600);
   // SerialAT.begin(9600);
-  delay(6000);
+  
 
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
@@ -130,7 +139,7 @@ void setup() {
 
   SerialMon.print("Waiting for network...");
   if (!modem.waitForNetwork()) {
-    SerialMon.println(" fail");
+    SerialMon.println("failed to connect to network");
     delay(10000);
     return;
   }
