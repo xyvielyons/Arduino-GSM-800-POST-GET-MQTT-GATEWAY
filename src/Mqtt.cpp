@@ -20,7 +20,8 @@ SoftwareSerial SerialAT(53, 51);  // RX, TX
 
 // Define the serial console for debug prints, if needed
 #define TINY_GSM_DEBUG SerialMon
-
+#define MAX_RECONNECT_ATTEMPTS 10
+#define MAX_NETWORK_DISCONNECTS 3
 
 // Add a reception delay, if needed.
 // This may be needed for a fast processor at a slow baud rate.
@@ -58,6 +59,11 @@ PubSubClient  mqtt(client);
 int ledStatus = LOW;
 
 uint32_t lastReconnectAttempt = 0;
+uint32_t failedReconnectAttempts = 0;
+uint32_t networkDisconnects = 0;
+void restart() {
+  asm volatile("jmp 0"); // Jump to address 0 to reset the microcontroller
+}
 
 void mqttCallback(char* topic, byte* payload, unsigned int len) {
   SerialMon.print("Message arrived [");
@@ -115,7 +121,7 @@ void setup() {
   // !!!!!!!!!!!
 
   SerialMon.println("Wait...");
-  delay(120000);
+  delay(60000);
   // Set GSM module baud rate
   SerialAT.begin(9600);
   // SerialAT.begin(9600);
@@ -140,7 +146,7 @@ void setup() {
   SerialMon.print("Waiting for network...");
   if (!modem.waitForNetwork()) {
     SerialMon.println("failed to connect to network");
-    delay(10000);
+    delay(5000);
     return;
   }
   SerialMon.println(" success");
@@ -153,7 +159,7 @@ void setup() {
   SerialMon.print(apn);
   if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
     SerialMon.println(" fail");
-    delay(10000);
+    delay(5000);
     return;
   }
   SerialMon.println(" success");
@@ -174,11 +180,17 @@ void loop() {
     SerialMon.println("Network disconnected");
     if (!modem.waitForNetwork(180000L, true)) {
       SerialMon.println(" fail");
-      delay(10000);
+      delay(5000);
+      networkDisconnects++;
+      if (networkDisconnects >= MAX_NETWORK_DISCONNECTS) {
+        SerialMon.println("Maximum network disconnects reached. Restarting...");
+        restart();
+      }
       return;
     }
     if (modem.isNetworkConnected()) {
       SerialMon.println("Network re-connected");
+      networkDisconnects = 0;
     }
 
 
@@ -189,7 +201,7 @@ void loop() {
       SerialMon.print(apn);
       if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
         SerialMon.println(" fail");
-        delay(10000);
+        delay(5000);
         return;
       }
       if (modem.isGprsConnected()) { SerialMon.println("GPRS reconnected"); }
@@ -201,9 +213,25 @@ void loop() {
     SerialMon.println("=== MQTT NOT CONNECTED ===");
     // Reconnect every 10 seconds
     uint32_t t = millis();
-    if (t - lastReconnectAttempt > 5000L) {
+    if (t - lastReconnectAttempt > 10000L) {
       lastReconnectAttempt = t;
-      if (mqttConnect()) { lastReconnectAttempt = 0; }
+      if (mqttConnect()) { 
+        lastReconnectAttempt = 0; 
+        SerialMon.println("MQTT reconnected");
+      }else{
+         SerialMon.print("Failed to reconnect MQTT (state: ");
+         SerialMon.print(mqtt.state());
+         SerialMon.println(")");
+         // Increment failed attempt counter
+        failedReconnectAttempts++;
+        // Check if maximum attempts reached
+        if (failedReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          SerialMon.println("Maximum reconnect attempts reached. Restarting...");
+          // Restart the code (e.g., using a software reset)
+          restart();
+        }
+      }
+
     }
     delay(100);
     return;
